@@ -1,0 +1,484 @@
+
+R version 3.0.2 (2013-09-25) -- "Frisbee Sailing"
+Copyright (C) 2013 The R Foundation for Statistical Computing
+Platform: x86_64-pc-linux-gnu (64-bit)
+
+R is free software and comes with ABSOLUTELY NO WARRANTY.
+You are welcome to redistribute it under certain conditions.
+Type 'license()' or 'licence()' for distribution details.
+
+  Natural language support but running in an English locale
+
+R is a collaborative project with many contributors.
+Type 'contributors()' for more information and
+'citation()' on how to cite R or R packages in publications.
+
+Type 'demo()' for some demos, 'help()' for on-line help, or
+'help.start()' for an HTML browser interface to help.
+Type 'q()' to quit R.
+
+[Previously saved workspace restored]
+
+> ###############################################################################
+> #
+> # Example R code for the model fitting for Experiment 1A of Stewart, Reimers, and Harris
+> #
+> ###############################################################################
+> 
+> rm(list=ls())
+> library(lme4) # using version lme4_1.1-1 from github
+Loading required package: Matrix
+> library(lattice)
+> library(latticeExtra)
+Loading required package: RColorBrewer
+> 
+> map <- read.csv("amount_map.csv")
+> map$name <- paste("w", map$x, ".", map$cond, sep="")
+> map
+   cond   x  i   name
+1     0  10  1  w10.0
+2     0  20  2  w20.0
+3     0  50  3  w50.0
+4     0 100  4 w100.0
+5     0 200  5 w200.0
+6     0 500  6 w500.0
+7     1  10  7  w10.1
+8     1 310  8 w310.1
+9     1 410  9 w410.1
+10    1 460 10 w460.1
+11    1 490 11 w490.1
+12    1 500 12 w500.1
+> 
+> data <- read.csv("experiment_1A_data.csv")
+> catch.violations <- aggregate(choice ~ order, data=subset(data, id>150), FUN=sum)
+> (  outliers <- catch.violations$order[catch.violations$choice>=3]  ) # participants who have violated dominance on 10% or more of catch trials
+[1] 10 12 25 30
+> data <- subset(data, !order%in%outliers) # Remove outlier participants
+> data <- subset(data, id<=150) # Take only non-catch trials
+> data$order <- as.factor(data$order) # order is a unique identifier for each participant
+> 
+> data <- merge(data, map, by.x=c("x","cond"), by.y=c("x","cond"))
+> data <- merge(data, map, by.x=c("y","cond"), by.y=c("x","cond"), suffixes=c("x", "y"))
+> 
+> # Order by subject (order) and question id (not trial number)
+> data <- data[order(data$order, data$id),]
+> head(data)
+     y cond  x order sub_no trial id  p   q choice ix namex iy namey
+439 10    0 20     0      0   107  1 20  40      1  2 w20.0  1 w10.0
+316 10    0 20     0      0    16  2 20  60      1  2 w20.0  1 w10.0
+254 10    0 20     0      0    34  3 20  80      1  2 w20.0  1 w10.0
+364 10    0 20     0      0   166  4 20 100      1  2 w20.0  1 w10.0
+426 10    0 20     0      0   145  5 40  60      0  2 w20.0  1 w10.0
+771 10    0 20     0      0   168  6 40  80      1  2 w20.0  1 w10.0
+> 
+> # Add dummy variables coding for the amounts
+> X.width <- max(map$i)
+> X <- matrix(0,nrow=nrow(data), ncol=X.width)
+> X[matrix(c(1:length(data$ix),data$ix),ncol=2)] <- -1
+> X[matrix(c(1:length(data$iy),data$iy),ncol=2)] <- 1
+> colnames(X) <- map$name[order(map$i)]
+> data <- cbind(data,X)
+> head(data)
+     y cond  x order sub_no trial id  p   q choice ix namex iy namey w10.0
+439 10    0 20     0      0   107  1 20  40      1  2 w20.0  1 w10.0     1
+316 10    0 20     0      0    16  2 20  60      1  2 w20.0  1 w10.0     1
+254 10    0 20     0      0    34  3 20  80      1  2 w20.0  1 w10.0     1
+364 10    0 20     0      0   166  4 20 100      1  2 w20.0  1 w10.0     1
+426 10    0 20     0      0   145  5 40  60      0  2 w20.0  1 w10.0     1
+771 10    0 20     0      0   168  6 40  80      1  2 w20.0  1 w10.0     1
+    w20.0 w50.0 w100.0 w200.0 w500.0 w10.1 w310.1 w410.1 w460.1 w490.1 w500.1
+439    -1     0      0      0      0     0      0      0      0      0      0
+316    -1     0      0      0      0     0      0      0      0      0      0
+254    -1     0      0      0      0     0      0      0      0      0      0
+364    -1     0      0      0      0     0      0      0      0      0      0
+426    -1     0      0      0      0     0      0      0      0      0      0
+771    -1     0      0      0      0     0      0      0      0      0      0
+> 
+> 
+> 
+> ###############################################################################
+> #
+> # Fit mixed effects logistic model with free utility for each value as in Appendix A
+> #
+> ###############################################################################
+> 
+> mm1 <- glmer(choice ~ cond + w10.0 + w20.0 + w50.0 + w100.0 + w200.0 + w10.1 + w310.1 + w410.1 + w460.1 + w490.1 + log(q/p) + log(q/p):cond + (1|order) + (0+w10.0|order) + (0+w20.0|order) + (0+w50.0|order) + (0+w100.0|order) + (0+w200.0|order) + (0+w10.1|order) + (0+w310.1|order) + (0+w410.1|order) + (0+w460.1|order) + (0+w490.1|order) + (0+log(q/p)|order), data=data, family=binomial)
+Warning message:
+In (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf,  :
+  failure to converge in 10000 evaluations
+> summary(mm1)
+Generalized linear mixed model fit by maximum likelihood ['glmerMod']
+ Family: binomial ( logit )
+Formula: choice ~ cond + w10.0 + w20.0 + w50.0 + w100.0 + w200.0 + w10.1 +      w310.1 + w410.1 + w460.1 + w490.1 + log(q/p) + log(q/p):cond +      (1 | order) + (0 + w10.0 | order) + (0 + w20.0 | order) +      (0 + w50.0 | order) + (0 + w100.0 | order) + (0 + w200.0 |      order) + (0 + w10.1 | order) + (0 + w310.1 | order) + (0 +      w410.1 | order) + (0 + w460.1 | order) + (0 + w490.1 | order) +      (0 + log(q/p) | order) 
+   Data: data 
+
+      AIC       BIC    logLik  deviance 
+ 3476.774  3648.934 -1712.387  3424.774 
+
+Random effects:
+ Groups   Name        Variance Std.Dev.
+ order    (Intercept) 1.143175 1.06919 
+ order.1  w10.0       1.715755 1.30987 
+ order.2  w20.0       0.587938 0.76677 
+ order.3  w50.0       0.009007 0.09491 
+ order.4  w100.0      0.160696 0.40087 
+ order.5  w200.0      0.156444 0.39553 
+ order.6  w10.1       7.463020 2.73185 
+ order.7  w310.1      0.237141 0.48697 
+ order.8  w410.1      0.001404 0.03748 
+ order.9  w460.1      0.001099 0.03315 
+ order.10 w490.1      0.084294 0.29033 
+ order.11 log(q/p)    0.605495 0.77814 
+Number of obs: 5550, groups: order, 37
+
+Fixed effects:
+              Estimate Std. Error z value Pr(>|z|)    
+(Intercept)     0.4538     0.2795   1.624 0.104451    
+cond            1.8862     0.4482   4.209 2.57e-05 ***
+w10.0          -5.3690     0.4012 -13.383  < 2e-16 ***
+w20.0          -4.3176     0.2832 -15.247  < 2e-16 ***
+w50.0          -2.8248     0.1788 -15.798  < 2e-16 ***
+w100.0         -1.4929     0.1711  -8.724  < 2e-16 ***
+w200.0         -0.8147     0.1570  -5.189 2.11e-07 ***
+w10.1         -11.1045     0.8850 -12.548  < 2e-16 ***
+w310.1         -2.4925     0.3311  -7.527 5.19e-14 ***
+w410.1         -0.9418     0.2637  -3.571 0.000355 ***
+w460.1         -0.4963     0.2331  -2.129 0.033247 *  
+w490.1         -0.3205     0.2298  -1.395 0.163058    
+log(q/p)        3.6019     0.2445  14.731  < 2e-16 ***
+cond:log(q/p)  -0.1742     0.4260  -0.409 0.682623    
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+Correlation of Fixed Effects:
+            (Intr) cond   w10.0  w20.0  w50.0  w100.0 w200.0 w10.1  w310.1
+cond        -0.624                                                        
+w10.0       -0.167  0.104                                                 
+w20.0       -0.190  0.118  0.453                                          
+w50.0       -0.233  0.145  0.544  0.637                                   
+w100.0      -0.156  0.097  0.389  0.467  0.589                            
+w200.0      -0.088  0.055  0.280  0.349  0.466  0.391                     
+w10.1        0.000 -0.141  0.000  0.000  0.000  0.000  0.000              
+w310.1       0.000 -0.328  0.000  0.000  0.000  0.000  0.000  0.457       
+w410.1       0.000 -0.267  0.000  0.000  0.000  0.000  0.000  0.382  0.699
+w460.1       0.000 -0.183  0.000  0.000  0.000  0.000  0.000  0.301  0.592
+w490.1       0.000 -0.093  0.000  0.000  0.000  0.000  0.000  0.212  0.449
+log(q/p)    -0.139  0.087 -0.187 -0.211 -0.217 -0.130 -0.079  0.000  0.000
+cnd:lg(q/p)  0.080 -0.206  0.107  0.121  0.125  0.074  0.046 -0.234 -0.111
+            w410.1 w460.1 w490.1 lg(q/)
+cond                                   
+w10.0                                  
+w20.0                                  
+w50.0                                  
+w100.0                                 
+w200.0                                 
+w10.1                                  
+w310.1                                 
+w410.1                                 
+w460.1       0.600                     
+w490.1       0.486  0.485              
+log(q/p)     0.000  0.000  0.000       
+cnd:lg(q/p) -0.062 -0.040 -0.025 -0.574
+> 
+> # Extract parameters and utilities 
+> (  gamma.0 <- fixef(mm1)["log(q/p)"]  )
+log(q/p) 
+3.601919 
+> (  gamma.1 <- fixef(mm1)["log(q/p)"] + fixef(mm1)["cond:log(q/p)"]  )
+log(q/p) 
+3.427724 
+> coef.table <- as.data.frame(summary(mm1)$coefficients)
+> coef.table$name <- rownames(coef.table)
+> values <- merge(map, coef.table, all.x=T)
+> values$v <- exp(values$Estimate)
+> values$v[values$cond==0] <- values$v[values$cond==0] ^ (1/gamma.0)
+> values$v[values$cond==1] <- values$v[values$cond==1] ^ (1/gamma.1)
+> values$v[is.na(values$v)] <- 1
+> values$cond <- factor(values$cond, levels=c(0,1), labels=c("Positive", "Negative"))
+> values <- values[order(values$cond, values$x),]
+> values
+     name     cond   x  i    Estimate Std. Error    z value     Pr(>|z|)
+1   w10.0 Positive  10  1  -5.3689599  0.4011897 -13.382595 7.643114e-41
+4   w20.0 Positive  20  2  -4.3175624  0.2831838 -15.246504 1.736882e-52
+10  w50.0 Positive  50  3  -2.8247540  0.1788019 -15.798236 3.199435e-56
+2  w100.0 Positive 100  4  -1.4929144  0.1711219  -8.724274 2.678935e-18
+5  w200.0 Positive 200  5  -0.8146581  0.1569981  -5.188968 2.114628e-07
+11 w500.0 Positive 500  6          NA         NA         NA           NA
+3   w10.1 Negative  10  7 -11.1044940  0.8849575 -12.548053 4.074019e-36
+6  w310.1 Negative 310  8  -2.4925304  0.3311444  -7.527019 5.191165e-14
+7  w410.1 Negative 410  9  -0.9417636  0.2636928  -3.571442 3.550208e-04
+8  w460.1 Negative 460 10  -0.4963023  0.2331060  -2.129084 3.324733e-02
+9  w490.1 Negative 490 11  -0.3204822  0.2297591  -1.394862 1.630576e-01
+12 w500.1 Negative 500 12          NA         NA         NA           NA
+            v
+1  0.22524129
+4  0.30159090
+10 0.45646841
+2  0.66068541
+5  0.79757984
+11 1.00000000
+3  0.03917913
+6  0.48327583
+7  0.75976284
+8  0.86520345
+9  0.91074069
+12 1.00000000
+> 
+> xyplot(v ~ x, groups=cond, data=values, type=c("b"), scales=list(alternating=FALSE), ylim=c(-0.05,1.05), xlab="Amount", ylab="Value") + layer(panel.text(c(150,425),c(.8,.5),c("Positive Skew", "Negative Skew")))
+> 
+> 
+> 
+> ###############################################################################
+> #
+> # Fit mixed effects logistic model with power law utility function as in Appendix B
+> #
+> ###############################################################################
+> 
+> mm2 <- glmer(choice ~ cond + log(q/p) + log(y/x) + log(q/p):cond + log(y/x):cond + (1|order) + (0+log(q/p)|order) + (0+log(y/x)|order), data=data, family=binomial) 
+> summary(mm2)
+Generalized linear mixed model fit by maximum likelihood ['glmerMod']
+ Family: binomial ( logit )
+Formula: choice ~ cond + log(q/p) + log(y/x) + log(q/p):cond + log(y/x):cond +      (1 | order) + (0 + log(q/p) | order) + (0 + log(y/x) | order) 
+   Data: data 
+
+      AIC       BIC    logLik  deviance 
+ 3504.928  3564.523 -1743.464  3486.928 
+
+Random effects:
+ Groups  Name        Variance Std.Dev.
+ order   (Intercept) 0.6861   0.8283  
+ order.1 log(q/p)    1.1672   1.0804  
+ order.2 log(y/x)    1.4479   1.2033  
+Number of obs: 5550, groups: order, 37
+
+Fixed effects:
+               Estimate Std. Error z value Pr(>|z|)    
+(Intercept)    0.496129   0.231288   2.145 0.031947 *  
+cond           1.121140   0.351441   3.190 0.001422 ** 
+log(q/p)       3.641987   0.300687  12.112  < 2e-16 ***
+log(y/x)       1.559694   0.286377   5.446 5.14e-08 ***
+cond:log(q/p) -0.004163   0.505016  -0.008 0.993423    
+cond:log(y/x)  1.497224   0.447165   3.348 0.000813 ***
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+Correlation of Fixed Effects:
+            (Intr) cond   lg(q/) lg(y/) cnd:lg(q/)
+cond        -0.658                                
+log(q/p)    -0.132  0.087                         
+log(y/x)     0.078 -0.051  0.068                  
+cnd:lg(q/p)  0.079 -0.255 -0.595 -0.040           
+cnd:lg(y/x) -0.050  0.064 -0.043 -0.640  0.134    
+> 
+> (  bias.0 <- exp(fixef(mm2)["(Intercept)"])  )
+(Intercept) 
+   1.642352 
+> (  bias.1 <- exp(fixef(mm2)["(Intercept)"] + fixef(mm2)["cond"])  )
+(Intercept) 
+   5.039308 
+> (  gamma.0 <- fixef(mm2)["log(q/p)"]  )
+log(q/p) 
+3.641987 
+> (  gamma.1 <- fixef(mm2)["log(q/p)"] + fixef(mm2)["cond:log(q/p)"]  )
+log(q/p) 
+3.637824 
+> (  gamma.alpha.0 <- fixef(mm2)["log(y/x)"]  )
+log(y/x) 
+1.559694 
+> (  gamma.alpha.1 <- fixef(mm2)["log(y/x)"] + fixef(mm2)["cond:log(y/x)"]  )
+log(y/x) 
+3.056918 
+> (  alpha.0 <- gamma.alpha.0 / gamma.0  )
+ log(y/x) 
+0.4282535 
+> (  alpha.1 <- gamma.alpha.1 / gamma.1  )
+ log(y/x) 
+0.8403149 
+> 
+> 
+> 
+> ###############################################################################
+> #
+> # Fit a simple logistic regression instead of mixed effects model (with power law utility function as in Appendix B)
+> #
+> ###############################################################################
+> 
+> m3 <- glm(choice ~ cond + log(q/p) + log(y/x) + log(q/p):cond + log(y/x):cond, data=data, family=binomial) 
+> summary(m3)
+
+Call:
+glm(formula = choice ~ cond + log(q/p) + log(y/x) + log(q/p):cond + 
+    log(y/x):cond, family = binomial, data = data)
+
+Deviance Residuals: 
+    Min       1Q   Median       3Q      Max  
+-2.9101  -0.4974   0.2737   0.5547   2.8676  
+
+Coefficients:
+              Estimate Std. Error z value Pr(>|z|)    
+(Intercept)    0.42695    0.11459   3.726 0.000195 ***
+cond           1.02933    0.17704   5.814 6.09e-09 ***
+log(q/p)       2.55872    0.12683  20.174  < 2e-16 ***
+log(y/x)       1.04174    0.05279  19.735  < 2e-16 ***
+cond:log(q/p) -0.34412    0.23744  -1.449 0.147260    
+cond:log(y/x)  0.50366    0.07632   6.600 4.12e-11 ***
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+(Dispersion parameter for binomial family taken to be 1)
+
+    Null deviance: 7374.0  on 5549  degrees of freedom
+Residual deviance: 4306.1  on 5544  degrees of freedom
+AIC: 4318.1
+
+Number of Fisher Scoring iterations: 6
+
+> 
+> (  bias.0 <- exp(coef(m3)["(Intercept)"])  )
+(Intercept) 
+   1.532579 
+> (  bias.1 <- exp(coef(m3)["(Intercept)"] + coef(m3)["cond"])  )
+(Intercept) 
+   4.289992 
+> (  gamma.0 <- coef(m3)["log(q/p)"]  )
+log(q/p) 
+2.558719 
+> (  gamma.1 <- coef(m3)["log(q/p)"] + coef(m3)["cond:log(q/p)"]  )
+log(q/p) 
+  2.2146 
+> (  gamma.alpha.0 <- coef(m3)["log(y/x)"]  )
+log(y/x) 
+1.041736 
+> (  gamma.alpha.1 <- coef(m3)["log(y/x)"] + coef(m3)["cond:log(y/x)"]  )
+log(y/x) 
+1.545392 
+> (  alpha.0 <- gamma.alpha.0 / gamma.0  )
+ log(y/x) 
+0.4071316 
+> (  alpha.1 <- gamma.alpha.1 / gamma.1  )
+ log(y/x) 
+0.6978197 
+> 
+> 
+> 
+> ###############################################################################
+> #
+> # More common is just to fit EU with power law utility function, which is mathematically exactly equivalent
+> #
+> ###############################################################################
+> 
+> U <- function(x, alpha) {
++ 	x^alpha
++ }
+> 
+> V <- function(p, x, alpha) {
++ 	p * U(x, alpha)
++ }
+> 
+> choice.prob <- function(p, x, q, y, alpha, gamma, bias) {
++ 	V.qy <- V(q, y, alpha)
++ 	V.px <- V(p, x, alpha)
++ 	bias*V.qy^gamma / (bias*V.qy^gamma + V.px^gamma)
++ }
+> 
+> neg.lnL <- function(data, model){
++ 	-sum(data*log(model)+(1-data)*log(1-model))
++ }
+> 
+> wrapper <- function(par, data) {
++ 	model <- with(data, choice.prob(p, x, q, y, alpha=par[1], gamma=par[2], bias=par[3]))
++ 	neg.lnL(data$choice, model) 
++ }
+> 
+> fit.model <- function(data) {
++ 	fit <- optim(par=c(1, 1, 1), fn=wrapper, data=data)
++ 	data.frame(order=data$order[1], cond=data$cond[1], alpha=fit$par[1], gamma=fit$par[2], bias=fit$par[3], neg.lnL=fit$value, convergence=fit$convergence)
++ }
+> 
+> # Fitting data at the level of each condition recovers estimates from m3 logistic regression exactly
+> (  fit.0 <- optim(par=c(1, 1, 1), fn=wrapper, data=subset(data, cond==0))  )
+$par
+[1] 0.4070306 2.5595401 1.5319837
+
+$value
+[1] 1453.038
+
+$counts
+function gradient 
+     204       NA 
+
+$convergence
+[1] 0
+
+$message
+NULL
+
+> (  fit.1 <- optim(par=c(1, 1, 1), fn=wrapper, data=subset(data, cond==1))  )
+$par
+[1] 0.6975817 2.2157373 4.2877102
+
+$value
+[1] 700.0205
+
+$counts
+function gradient 
+     112       NA 
+
+$convergence
+[1] 0
+
+$message
+NULL
+
+> 
+> # Fitting for each individual participant and taking medians gives similar results to mm2 mixed effects model, but correspondence won't be exact because mixed effects modelling reigns extreme participants
+> fits <- by(data=data, data$order, fit.model)
+> fits <- do.call(rbind, fits)
+> fits
+   order cond     alpha      gamma         bias   neg.lnL convergence
+0      0    0 0.3113623  3.4647667 2.913692e+00 58.612119           0
+1      1    0 0.5978849  2.0903304 1.101037e+00 76.828325           0
+2      2    1 2.2914210  4.8526141 6.197854e+00 25.912872           0
+3      3    0 0.2487109  4.1669065 2.173961e+00 54.093602           0
+4      4    1 0.6392133  1.8824379 3.578354e+00 50.513246           0
+5      5    1 0.4680405  5.2093803 2.620469e+00 24.737673           0
+6      6    1 0.5488504  3.4811580 1.305701e+01 26.123157           0
+7      7    0 0.2480544  3.7577019 8.939944e-01 67.073021           0
+8      8    1 2.4576220 11.3109986 3.902201e+04  4.222208           1
+9      9    0 0.5112000  1.6194588 8.914460e+00 57.631494           0
+11    11    1 0.6720026  4.3066829 5.402775e+00 16.836935           0
+13    13    1 0.9555592  1.9507810 3.998962e+02 30.537563           0
+14    14    0 0.9398954  2.9054790 6.696808e+00 54.173767           0
+15    15    1 0.4195952 19.4375104 8.561105e-01  9.059980           0
+16    16    0 0.3604073  3.6949652 5.899953e-01 66.956340           0
+17    17    0 0.5317682  2.4537020 2.279549e+00 73.950302           0
+18    18    1 1.1328934  9.3092396 2.701171e+00 15.867361           0
+19    19    1 0.4276671  4.7267906 2.370879e+00 29.951733           0
+20    20    0 1.0015016 14.6207980 6.339888e+00 12.258289           0
+21    21    1 1.2523660 11.4258225 1.058421e+01 10.378223           0
+22    22    0 0.4660767  2.1779546 2.599025e+00 76.153465           0
+23    23    1 6.5360662  0.3411062 6.453160e+01 14.780278           0
+24    24    0 0.1404148  5.5019827 2.775638e-01 58.094490           0
+26    26    0 0.6787872  4.0473354 2.166730e+00 51.027638           0
+27    27    1 7.8475009  1.0328985 1.526637e+02 14.006408           0
+28    28    1 1.7093085  0.7854434 6.633070e+01 39.624047           0
+29    29    0 0.2513577 10.6751758 9.607665e-01 32.845128           0
+31    31    0 0.4408278  2.5082662 1.312465e+00 77.352643           0
+32    32    0 0.1647947  2.7659895 1.280141e+00 67.674638           0
+33    33    1 1.7148937  6.0434586 2.345582e-01 34.275032           0
+34    34    1 2.0473315  5.5554060 1.952935e+01 16.824074           0
+35    35    0 0.4496942  3.8706261 1.248637e+00 62.015645           0
+36    36    0 0.5071884  5.5386230 1.327938e+00 46.780670           0
+37    37    1 0.5801239  4.4772871 1.210312e+00 30.924605           0
+38    38    0 0.3785912  2.1778037 1.553637e+00 80.783117           0
+39    39    1 0.6929237  3.0721632 3.876133e+00 27.699809           0
+40    40    0 0.2980187  4.4141337 3.018063e+00 51.702861           0
+> aggregate(alpha ~ cond, data=fits, FUN=median)
+  cond     alpha
+1    0 0.4408278
+2    1 1.0442263
+> 
+> 
+> proc.time()
+   user  system elapsed 
+131.880   0.052 132.360 
